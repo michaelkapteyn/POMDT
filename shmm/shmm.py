@@ -18,12 +18,12 @@ class SHMM:
 
 
     def defaultInitialProb(self):
-        initialProb = np.zeros(len(self.states))
+        initialProb = np.zeros((len(self.states),1))
         initialProb[0] = 1
         return initialProb
 
     def defaultTransitionMatrix(self):
-        alpha = 0.1
+        alpha = 0.07
 
         tp = np.zeros((1,len(self.states)))
         tp[0,0]= 1-alpha
@@ -32,72 +32,58 @@ class SHMM:
         transition_probability = tp
         for i in range(1,len(self.states)):
            transition_probability = np.vstack((transition_probability,np.roll(tp,i)))
+
         return transition_probability
 
     def defaultEmissionMatrix(self):
-        sigma = 0.4
+        sigma = 200
         E = np.ones((len(self.states),len(self.measurements)))
         for stIdx, st in enumerate(self.states):
             for mIdx, m in enumerate(self.measurements):
                 for sensIdx in range(self.damageLibrary.nSensors):
                     E[stIdx,mIdx] = E[stIdx,mIdx]*norm.pdf(m[sensIdx], self.damageLibrary.predictedMeasurements[st][sensIdx], sigma)
+        for mIdx, m in enumerate(self.measurements):
+            E[:,mIdx] = E[:,mIdx]/np.linalg.norm(E[:,mIdx])
         return E
 
-    def fwd_bkw(self):
-        observations = list(range(0,len(self.measurements)))
-        states = self.states[:-1]
-        end_st = len(self.states)-1
+    def fwd(self,fv,ev):
+        for s, state in enumerate(self.states):
+            fv = np.multiply(self.emissionMat[:,ev],np.transpose(self.transitionMat).dot(fv).flatten())
+            c = np.linalg.norm(fv)
+        return fv.flatten()/c, c
 
+    def bkwd(self,b,ev):
+        for s, state in enumerate(self.states):
+            b[s] = np.multiply(self.emissionMat[:,ev],b).dot(self.transitionMat[s,:])
+        return b.flatten()
+
+    def fwd_bkwd(self):
+        print(self.emissionMat)
+        nMeasurements = len(self.measurements)
+        ev = list(range(0,nMeasurements))
+
+        states = self.states
         start_prob = self.initialProb
-        trans_prob = self.transmissionMatrix
-        emm_prob = self.emmissionMatrix
 
         # forward part of the algorithm
-        fwd = []
-        # f_prev = np.zeros((len(states),1))
-        for i, observation_i in enumerate(observations):
-            f_curr = np.zeros((len(states),1))
-            for st,p in enumerate(states):
-                if i == 0:
-                    # base case for the forward part
-                    prev_f_sum = start_prob[st]
-                else:
-                    prev_f_sum = sum(f_prev[k]*trans_prob[k,st] for k,s in enumerate(states))
-
-                f_curr[st] = emm_prob[st,observation_i] * prev_f_sum
-
-            fwd.append(f_curr)
-            f_prev = f_curr
-
-        p_fwd = sum(f_curr[k] * trans_prob[k][end_st] for k,s in enumerate(states))
+        fwd = np.zeros((nMeasurements,len(states)))
+        c = np.zeros(nMeasurements)
+        for i, observation_i in enumerate(ev):
+            if i == 0:
+                fwd[i,:],c[i] = self.fwd(start_prob,ev[i])
+            else:
+                fwd[i,:],c[i] = self.fwd(fwd[i-1,:],ev[i])
 
         # backward part of the algorithm
-        bkw = []
-        b_prev = np.zeros((len(states),1))
-        for i, observation_i_plus in enumerate(reversed(np.append(observations[1:],0))):
-            b_curr = np.zeros((len(states),1))
-            for st,s in enumerate(states):
-                if i == 0:
-                    # base case for backward part
-                    b_curr[st] = trans_prob[st][end_st]
-                else:
-                    b_curr[st] = sum(trans_prob[st][l] * emm_prob[l][observation_i_plus] * b_prev[l] for l,s in enumerate(states))
+        sv = np.zeros((nMeasurements,len(states)))
+        b = np.ones(len(states))
+        for i, observation_i in reversed(list(enumerate(ev))):
+            sv[i,:] = np.multiply(fwd[i,:],c[i]*b)
+            sv[i,:] = sv[i,:]/np.linalg.norm(sv[i,:])
+            b = self.bkwd(b,ev[i])
 
-            bkw.insert(0,b_curr)
-            b_prev = b_curr
-
-        p_bkw = sum(start_prob[l] * emm_prob[l][observations[0]] * b_curr[l] for l,s in enumerate(states))
-
-        # merging the two parts
-        posterior = np.zeros((len(observations),len(states)))
-        for i in range(len(observations)):
-            for st,s in enumerate(states):
-                posterior[i,st] = fwd[i][st] * bkw[i][st] / p_fwd
-            # posterior.append({st: fwd[i][st] * bkw[i][st] / p_fwd for st,s in enumerate(states)})
-        assert p_fwd-p_bkw < 1e-5
-        # return fwd, bkw, posterior
-        self.fullposterior = posterior
-        return posterior
+        self.fullposterior = sv
+        return sv
 
     def plotsmoothingresult(self):
         # plot smoothing result
@@ -105,4 +91,12 @@ class SHMM:
 
         # plot ground truth
         plt.plot(range(len(self.measurements)), np.linspace(0,len(self.states)-1,len(self.measurements)),label = "Ground Truth")
+        plt.show()
+
+    def plotmeasurements(self, indices, cleanmeasurements=None):
+        measurementcolors = ['red','green','blue']
+        for plotIdx, sensorIdx in enumerate(indices):
+            if cleanmeasurements is not None:
+                plt.plot(range(len(self.measurements)), cleanmeasurements[:,sensorIdx],color='black')
+            plt.scatter(range(len(self.measurements)), self.measurements[:,sensorIdx],color=measurementcolors[plotIdx])
         plt.show()

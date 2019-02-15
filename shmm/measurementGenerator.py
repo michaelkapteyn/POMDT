@@ -31,12 +31,14 @@ class measurementGenerator():
         # Add artificial noise to measurements
         if self.noise.type is "Gaussian":
             noise = np.random.normal(self.noise.mean, self.noise.sigma,measurements.shape)
-            measurements += noise
+            noisymeasurements = measurements+noise
+        else:
+            noisymeasurements = measurements
 
-        return measurements
+        return noisymeasurements, measurements
 
 class noiseParams():
     def __init__(self, nSensors, type = "Gaussian"):
         self.type = type
         self.mean = 0
-        self.sigma = 0
+        self.sigma = 200
