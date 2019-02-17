@@ -8,14 +8,16 @@ from shmm.utils import *
 
 
 class SHMM:
-    def __init__(self, damageLibrary, measurements, initialProb=None, transitionMat=None, emissionMat=None):
+    def __init__(self, damageLibrary, measurements, cleanmeasurements, groundTruthState, windowLength = None, initialProb=None, transitionMat=None, emissionMat=None):
         self.damageLibrary = damageLibrary
         self.states = self.damageLibrary.states
         self.measurements = measurements
+        self.cleanmeasurements = cleanmeasurements
+        self.groundTruthState = groundTruthState
+        self.windowLength = windowLength if windowLength is not None else len(self.measurements)
         self.initialProb = initialProb if initialProb is not None else self.defaultInitialProb()
         self.transitionMat = transitionMat if transitionMat is not None else self.defaultTransitionMatrix()
         self.emissionMat = emissionMat if emissionMat is not None else self.defaultEmissionMatrix()
-
 
     def defaultInitialProb(self):
         initialProb = np.zeros((len(self.states),1))
@@ -32,11 +34,10 @@ class SHMM:
         transition_probability = tp
         for i in range(1,len(self.states)):
            transition_probability = np.vstack((transition_probability,np.roll(tp,i)))
-
         return transition_probability
 
     def defaultEmissionMatrix(self):
-        sigma = 200
+        sigma = 100
         E = np.ones((len(self.states),len(self.measurements)))
         for stIdx, st in enumerate(self.states):
             for mIdx, m in enumerate(self.measurements):
@@ -57,17 +58,18 @@ class SHMM:
             b[s] = np.multiply(self.emissionMat[:,ev],b).dot(self.transitionMat[s,:])
         return b.flatten()
 
-    def fwd_bkwd(self):
-        print(self.emissionMat)
-        nMeasurements = len(self.measurements)
-        ev = list(range(0,nMeasurements))
+    def fwd_bkwd(self, start_prob = None, firstMeasurement = 0):
+        windowLength = self.windowLength
+        start_prob = start_prob if start_prob is not None else self.initialProb
 
+
+        ev = list(range(firstMeasurement,firstMeasurement+windowLength))
         states = self.states
-        start_prob = self.initialProb
+
 
         # forward part of the algorithm
-        fwd = np.zeros((nMeasurements,len(states)))
-        c = np.zeros(nMeasurements)
+        fwd = np.zeros((windowLength,len(states)))
+        c = np.zeros(windowLength)
         for i, observation_i in enumerate(ev):
             if i == 0:
                 fwd[i,:],c[i] = self.fwd(start_prob,ev[i])
@@ -75,7 +77,7 @@ class SHMM:
                 fwd[i,:],c[i] = self.fwd(fwd[i-1,:],ev[i])
 
         # backward part of the algorithm
-        sv = np.zeros((nMeasurements,len(states)))
+        sv = np.zeros((windowLength,len(states)))
         b = np.ones(len(states))
         for i, observation_i in reversed(list(enumerate(ev))):
             sv[i,:] = np.multiply(fwd[i,:],c[i]*b)
@@ -85,18 +87,14 @@ class SHMM:
         self.fullposterior = sv
         return sv
 
-    def plotsmoothingresult(self):
-        # plot smoothing result
-        plt.plot(range(len(self.measurements)), np.argmax(self.fullposterior,1),label="Smoothing Result")
+    def windowedSmoother(self):
+        currentposterior = np.zeros((self.windowLength, len(self.states)))
+        currentposterior[0,:] = self.initialProb.flatten()
+        self.windowedPosteriors = np.zeros((len(self.measurements)-self.windowLength+2,self.windowLength,len(self.states)))
+        self.windowedPosteriors[0,:,:] = currentposterior
 
-        # plot ground truth
-        plt.plot(range(len(self.measurements)), np.linspace(0,len(self.states)-1,len(self.measurements)),label = "Ground Truth")
-        plt.show()
-
-    def plotmeasurements(self, indices, cleanmeasurements=None):
-        measurementcolors = ['red','green','blue']
-        for plotIdx, sensorIdx in enumerate(indices):
-            if cleanmeasurements is not None:
-                plt.plot(range(len(self.measurements)), cleanmeasurements[:,sensorIdx],color='black')
-            plt.scatter(range(len(self.measurements)), self.measurements[:,sensorIdx],color=measurementcolors[plotIdx])
-        plt.show()
+        mIdx = 0
+        while mIdx+self.windowLength-1 < len(self.measurements):
+            currentposterior = self.fwd_bkwd(currentposterior[0,:], mIdx)
+            self.windowedPosteriors[mIdx+1,:,:] = currentposterior
+            mIdx += 1

@@ -26,7 +26,9 @@ class measurementGenerator():
             print('Error: Unknown interpolation type:'+str(type))
 
         # Generate clean measurements
-        measurements = fit(np.linspace(0, len(states)-1, nMeasurements))
+        groundTruthState = np.linspace(0,len(states)-1, nMeasurements)
+        measurements = fit(groundTruthState)
+
 
         # Add artificial noise to measurements
         if self.noise.type is "Gaussian":
@@ -35,10 +37,10 @@ class measurementGenerator():
         else:
             noisymeasurements = measurements
 
-        return noisymeasurements, measurements
+        return noisymeasurements, measurements, groundTruthState
 
 class noiseParams():
     def __init__(self, nSensors, type = "Gaussian"):
         self.type = type
         self.mean = 0
-        self.sigma = 200
+        self.sigma = 100
