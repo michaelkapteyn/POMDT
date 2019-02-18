@@ -35,65 +35,78 @@ def animateWindowedSmoother(model):
     plt.ylabel('State in Damage Library')
     plt.xlabel('Time step')
 
-    #plot state lines
+    # plot reference lines for each state
     for i,s in enumerate(model.states):
         plt.plot([0,len(model.measurements)],[i,i],linewidth=0.1,color="grey")
 
-    #Create plot objects
-    currentWindowLine, = ax.plot(0, np.argmax(model.windowedPosteriors[0,0,:]),color="grey", label="Window Estimate")
-    historyLine, = ax.plot(0, np.argmax(model.windowedPosteriors[0,0,:]),color="black", label="Estimate History")
-    currentWindowPosteriors = plt.scatter(0,0, color="black",label="Posterior Densities")
+    # plot the ground truth state
+    plotGroundTruthState(model, ax, color="black",)
+
+    # create plot objects for animated lines (values will be initialized later)
+    currentWindowLine, = ax.plot(0, 0 ,color="grey", label="Window Estimate")
+    historyLine, = ax.plot(0, 0, color="black", label="Estimate History")
+    posteriorScatter = plt.scatter(0,0, color="black",label="Posterior Densities")
 
     # Add Legend
     plt.legend()
-    def updateWindowPosterior(pos, model, timestep):
-        xpts = timestep+np.repeat(range(0,model.windowLength),len(model.states))
-        ypts = np.tile(range(0,len(model.states)), model.windowLength)
-        sizes = 4*model.windowedPosteriors[timestep,:,:].flatten()
+
+
+    def updatePosteriors(pos, model, timestep):
+        xpts = np.repeat(range(0,timestep+model.windowLength-1),len(model.states))
+        ypts = np.tile(range(0,len(model.states)), timestep+model.windowLength-1)
+        sizes = 4*model.windowedPosteriors[timestep].flatten()
         pos.set_offsets(np.transpose(np.vstack((xpts,ypts))))
         pos.set_sizes(sizes)
         return pos,
 
-    def updateWindowLine(line, model, timestep, statistic="mode"):
-        if statistic is "mode":
-            #plot the mode
-            line.set_data(range(timestep,timestep+model.windowLength),np.argmax(model.windowedPosteriors[timestep],1))
-        else:
-            #plot the mean
+    def updateWindowLine(line, model, timestep, statistic="viterbi"):
+        if statistic is "viterbi":
+            mostlikelyidx = np.argmax(model.viterbiprobabilities[timestep][:,-1])
+            line.set_data(np.array(range(timestep,timestep+model.windowLength)),np.array(model.viterbipaths[timestep][mostlikelyidx,timestep:]))
+        elif statistic is "mode":
+            #plot mode of posterior at each timestep (not the joint posterior!)
+            line.set_data(range(timestep,timestep+model.windowLength),np.argmax(model.windowedPosteriors[timestep][timestep-1:,:],1))
+        elif statistic is "mean":
+            #plot mean of posterior at each timestep (not the joint posterior!)
             statevec = range(0,len(model.states))
-            line.set_data(range(timestep,timestep+model.windowLength),model.windowedPosteriors[timestep].dot(statevec))
+            line.set_data(range(timestep,timestep+model.windowLength),model.windowedPosteriors[timestep][timestep-1:,:].dot(statevec))
+        else:
+            pass
         return line,
 
-    def updateHistoryLine(line, model, timestep, statistic="mode"):
-        if statistic is "mode":
-            #plot mode
-            line.set_data(range(0,timestep),np.argmax(model.windowedPosteriors[0:timestep,0,:],1))
-        else:
-            #plot mean
+    def updateHistoryLine(line, model, timestep, statistic="viterbi"):
+        if statistic is "viterbi":
+            mostlikelyidx = np.argmax(model.viterbiprobabilities[timestep][:,-1])
+            line.set_data(range(0,timestep),model.viterbipaths[timestep][mostlikelyidx,0:timestep])
+        elif statistic is "mode":
+            #plot mode of posterior at each timestep (not the joint posterior!)
+            line.set_data(range(0,timestep),np.argmax(model.windowedPosteriors[timestep][0:timestep,:],1))
+        elif statistic is "mean":
+            #plot mean of posterior at each timestep (not the joint posterior!)
             statevec = range(0,len(model.states))
-            line.set_data(range(0,timestep),model.windowedPosteriors[0:timestep,0,:].dot(statevec))
+            line.set_data(range(0,timestep),model.windowedPosteriors[timestep][0:timestep,:].dot(statevec))
+        else:
+            pass
         return line,
 
 
     def init():  # only required for blitting to give a clean slate.
-        plotGroundTruthState(model, ax, color="black",)
-        updateWindowLine(currentWindowLine,model,0)
-        updateHistoryLine(historyLine, model, 0)
-        updateWindowPosterior(currentWindowPosteriors,model,0)
+        updateWindowLine(currentWindowLine ,model, 0, "viterbi")
+        updateHistoryLine(historyLine, model, 0, "viterbi")
+        updatePosteriors(posteriorScatter,model,0)
 
-        return currentWindowLine, historyLine, currentWindowPosteriors,
+        return currentWindowLine, historyLine, posteriorScatter,
 
     def animate(i):
         #update the current window line
-        updateWindowLine(currentWindowLine, model, i)
-
+        updateWindowLine(currentWindowLine, model, i, "viterbi")
         #update the line plot outside of the window
-        updateHistoryLine(historyLine, model, i)
+        updateHistoryLine(historyLine, model, i, "viterbi")
 
         #update the posterior bubbles
-        updateWindowPosterior(currentWindowPosteriors ,model, i)
+        updatePosteriors(posteriorScatter ,model, i)
 
-        return currentWindowLine, historyLine, currentWindowPosteriors,
+        return currentWindowLine, historyLine, posteriorScatter,
 
     ani = animation.FuncAnimation(fig, animate, init_func=init, interval=100, repeat=False, blit=True, frames=len(model.measurements)-model.windowLength)
     plt.show()

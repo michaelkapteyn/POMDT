@@ -18,6 +18,8 @@ class SHMM:
         self.initialProb = initialProb if initialProb is not None else self.defaultInitialProb()
         self.transitionMat = transitionMat if transitionMat is not None else self.defaultTransitionMatrix()
         self.emissionMat = emissionMat if emissionMat is not None else self.defaultEmissionMatrix()
+        self.viterbipaths = {}
+        self.viterbiprobabilities = {}
 
     def defaultInitialProb(self):
         initialProb = np.zeros((len(self.states),1))
@@ -25,7 +27,7 @@ class SHMM:
         return initialProb
 
     def defaultTransitionMatrix(self):
-        alpha = 0.07
+        alpha = 0.2
 
         tp = np.zeros((1,len(self.states)))
         tp[0,0]= 1-alpha
@@ -87,14 +89,51 @@ class SHMM:
         self.fullposterior = sv
         return sv
 
+    def computeMostLikelyPaths(self, posteriorMatrix):
+        sizeofPos = len(posteriorMatrix)
+        # add one for initial condition
+        prevstate = np.zeros((len(self.states),sizeofPos))
+        probabilities = np.zeros((len(self.states),sizeofPos))
+        paths = np.zeros((len(self.states),sizeofPos))
+
+        prevstate[:,0] = np.array(range(0,len(self.states))).flatten()
+        probabilities[:,0] = self.initialProb.flatten()
+
+        for step in range(0,sizeofPos-1):
+            for i,s in enumerate(self.states):
+                prevstate[i,step+1] = np.argmax(np.multiply(self.transitionMat[:,i],probabilities[:,step]))
+                probabilities[i,step+1] = self.emissionMat[i,step-1]*np.max(np.multiply(self.transitionMat[:,i],probabilities[:,step]))
+            probabilities[:,step+1] = probabilities[:,step+1] / np.linalg.norm(probabilities[:,step+1])
+
+        for step in reversed(list(range(0,sizeofPos-1))):
+            for i,s in enumerate(self.states):
+                if step is sizeofPos-2:
+                    paths[i,step+1] = i
+                else:
+                    paths[i,step+1] = prevstate[int(paths[i,step+2]),step+2]
+
+        return paths, probabilities
+
     def windowedSmoother(self):
         currentposterior = np.zeros((self.windowLength, len(self.states)))
         currentposterior[0,:] = self.initialProb.flatten()
-        self.windowedPosteriors = np.zeros((len(self.measurements)-self.windowLength+2,self.windowLength,len(self.states)))
-        self.windowedPosteriors[0,:,:] = currentposterior
+        self.windowedPosteriors = {}
+        self.windowedPosteriors[0] = currentposterior
 
+        self.viterbipaths = {}
+        self.viterbiprobabilities = {}
+
+        paths, probabilities = self.computeMostLikelyPaths(self.windowedPosteriors[0])
+        self.viterbipaths[0] = paths
+        self.viterbiprobabilities[0] = probabilities
+
+        #measurement index
         mIdx = 0
         while mIdx+self.windowLength-1 < len(self.measurements):
             currentposterior = self.fwd_bkwd(currentposterior[0,:], mIdx)
-            self.windowedPosteriors[mIdx+1,:,:] = currentposterior
+            self.windowedPosteriors[mIdx+1] = np.concatenate((self.windowedPosteriors[mIdx][0:mIdx+1,:],currentposterior))
+            # Viterbi to compute most likely path
+            paths, probabilities = self.computeMostLikelyPaths(self.windowedPosteriors[mIdx+1])
+            self.viterbipaths[mIdx+1] = paths
+            self.viterbiprobabilities[mIdx+1] = probabilities
             mIdx += 1
