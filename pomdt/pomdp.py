@@ -2,27 +2,37 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 
-from pomdt.damageLibrary import *
-from pomdt.measurementGenerator import *
-from pomdt.utils import *
+from pomdt import *
 
 
 class POMDP:
-    def __init__(self, nTimeSteps, states, actions, measurementGenerator, groundTruthState, initialBelief=None, transitionMat=None, emissionMat=None):
+    def __init__(self, nTimeSteps, states, stateIdxs, actions, actionIdxs, capability, measurementGenerator, groundTruthState, initialBelief=None, globaltransitionMat=None, localtransitionMat=None, emissionMat=None):
         self.step = 0
         self.nTimeSteps = nTimeSteps
-
+        self.statetransitionmode = 'random'
         self.measurementGenerator = measurementGenerator
         self.noisymeasurements = measurementGenerator.nMeasurements
         self.states = states
+        self.stateIdxs = stateIdxs
         self.actions = actions
+        self.actionIdxs = actionIdxs
+        self.actionhistory = []
+        self.statehistory=[]
+        self.capability = capability
         self.groundTruthState = groundTruthState
 
         self.initialBelief = initialBelief if initialBelief is not None else self.defaultInitialBelief()
-        self.transitionMat = transitionMat
+        self.globaltransitionMat = globaltransitionMat
+        self.localtransitionMat = localtransitionMat
         # self.emissionMat = emissionMat if emissionMat is not None else self.defaultEmissionMatrix()
-        self.measurement_covariance = 50*50
-        self.Reward = self.defaultReward
+        self.measurement_covariance = 40*40
+        self.gamma = 0.9
+
+        # solver = PBVI(self.nTimeSteps, self)
+        # solver = Naive()
+        self.solver = QMDP(self)
+        self.policy = self.solver.getPolicy()
+
 
     def emission_matrix_for_action(self, obs, action):
         mIdx = self.step-1
@@ -46,33 +56,50 @@ class POMDP:
         return E
 
     def transition_matrix_for_action(self, action):
-        if action == 0:
-            T =  self.transitionMat["3g"]
-        elif action == 1:
-            T = self.transitionMat["2g"]
+        T =  self.globaltransitionMat[action]
+        return T
+
+    def local_transition_matrix_for_action(self, component, action):
+        T =  self.localtransitionMat[component][action]
         return T
 
     def get_action(self, belief):
-        if np.argmax(belief) < len(belief)/2.0:
-            return 1
-        else:
-            return 0
+        action = self.policy(belief)
+        return action
 
     def take_action(self, si, actionIdx):
         self.step = self.step+1
+        self.actionhistory.append(actionIdx)
+
         # perform an action
         # transition the underlying groundtruth state, return sj
-        self.state = self.groundTruthState[self.step]
+        if self.statetransitionmode == 'Deterministic':
+            self.state = self.groundTruthState[self.step]
+        else:
+            self.state = []
+            for cIdx, st in enumerate(si):
+                T = self.local_transition_matrix_for_action(cIdx, actionIdx)
+                st = int(st)
+                probabilities = T[st]
+                self.state.append(np.random.choice(np.arange(0,len(probabilities)), 1, p=probabilities)[0])
+            self.state = tuple(self.state)
 
+        self.statehistory.append(self.state)
         # compute the next observation
         obs = self.measurementGenerator.getMeasurement(self.state, actionIdx)
 
         # return the reward obtained R(action,si,sj,action):
-        reward = self.Reward(actionIdx, si, self.state, obs)
+        reward = self.reward(si, actionIdx)
         return self.state, obs, reward
 
-    def defaultReward(self,actionIdx, si, sj, obs):
-        return 1
+    def reward(self, stateIdx, actionIdx):
+        s1 = float(stateIdx[0])
+        s2 = float(stateIdx[1])
+        a =  float(actionIdx)
+        if s1==s2==4:
+            return -5
+        else:
+            return 0.01*a + (np.power(8,3) -  np.power(s1+s2,3))/1000.
 
     def defaultInitialBelief(self):
         initialProb = np.zeros((len(self.states),1))

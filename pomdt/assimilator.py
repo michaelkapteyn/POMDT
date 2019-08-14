@@ -12,7 +12,7 @@ class Assimilator:
         E = self.pomdp.emission_matrix_for_action(obs,actionIdx)
 
         new_belief = np.multiply(E,(np.transpose(T).dot(belief)))
-        new_belief = new_belief / np.linalg.norm(new_belief)
+        new_belief = new_belief / np.linalg.norm(new_belief,1)
         return new_belief
 
 

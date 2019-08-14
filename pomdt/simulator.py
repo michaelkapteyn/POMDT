@@ -2,20 +2,24 @@ from pomdt.assimilator import *
 import matplotlib.pyplot as plt
 
 class Simulator:
-    def __init__(self, pomdp, visualizer):
-        self.visualizer = visualizer
+    def __init__(self, pomdp, assimilator, visualizer):
         self.pomdp = pomdp
-        self.assimilator = Assimilator(pomdp, 1)
-        # self.params = Params()
+        self.assimilator = assimilator
+        self.visualizer = visualizer
+        self.initialize_sim()
 
     def run(self):
-        # visualiser = self.visualizer
-        pomdp = self.pomdp
-        assimilator = self.assimilator
-        total_rewards= 0
+        for i in range(self.pomdp.nTimeSteps):
+            self.advance()
+            plt.pause(0.01)
 
-        belief = pomdp.initialBelief
-        state = pomdp.groundTruthState[0]
+        print('{} steps taken. Total reward = {}'.format(i + 1, total_rewards))
+
+    def initialize_sim(self):
+        self.total_rewards= 0
+
+        self.belief = self.pomdp.initialBelief
+        self.state = self.pomdp.groundTruthState[0]
 
 
         print('~~~ Initializing Simulation ~~~')
@@ -25,32 +29,29 @@ class Simulator:
             Init Belief: {}
             Time Horizon: {}
             Max Duration: {}
-        ++++++++++++++++++++++'''.format(state, belief, pomdp.step, 199))
+        ++++++++++++++++++++++'''.format(self.state, self.belief, self.pomdp.step, self.pomdp.nTimeSteps))
 
-        for i in range(199):
-            # plan, take action and receive environment feedbacks
-            actionIdx = pomdp.get_action(belief)
-            print("action is {}".format(actionIdx))
-            state, obs, reward = pomdp.take_action(state, actionIdx)
+    def advance(self):
+        # plan, take action and receive environment feedbacks
+        actionIdx = self.pomdp.get_action(self.belief)
+        print("action is {}".format(actionIdx))
+        self.state, obs, reward = self.pomdp.take_action(self.state, actionIdx)
 
-            # update states
-            belief = assimilator.update_belief(belief, actionIdx, obs)
-            self.visualizer.update(belief,state)
-            # plt.show()
-            plt.pause(0.01)
-            total_rewards += reward
+        # update states
+        self.belief = self.assimilator.update_belief(self.belief, actionIdx, obs)
 
-            # print info
-            print('\n'.join([
-            'Taking action: {}'.format(self.pomdp.actions[actionIdx]),
-            'Observation: {}'.format(obs),
-            'Reward: {}'.format(reward),
-            'New state: {}'.format(state),
-            'New Belief:']))
-            for state, prob in zip(self.pomdp.states, belief):
-                print("(" + state[0] + "," + state[1]+ ") : " + str(prob))
-            print('=' * 20)
+        cleanobs = self.pomdp.measurementGenerator.getMeasurement(self.state, actionIdx, noisy=False)
+        self.visualizer.update(self.belief,self.state, obs, cleanobs)
 
+        self.total_rewards += reward
 
-        print('{} steps taken. Total reward = {}'.format(i + 1, total_rewards))
-        return
+        # print info
+        print('\n'.join([
+        'Taking action: {}'.format(self.pomdp.actions[actionIdx]),
+        'Observation: {}'.format(obs),
+        'Reward: {}'.format(reward),
+        'New state: {}'.format(self.state),
+        'New Belief:']))
+        for state, prob in zip(self.pomdp.states, self.belief):
+            print("(" + state[0] + "," + state[1]+ ") : " + str(prob))
+        print('=' * 20)
