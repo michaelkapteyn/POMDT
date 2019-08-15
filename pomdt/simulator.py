@@ -41,7 +41,7 @@ class Simulator:
         self.belief = self.assimilator.update_belief(self.belief, actionIdx, obs)
 
         cleanobs = self.pomdp.measurementGenerator.getMeasurement(self.state, actionIdx, noisy=False)
-        self.visualizer.update(self.belief,self.state, obs, cleanobs)
+        self.visualizer.plot_all(self.belief, self.state, obs, cleanobs)
 
         self.total_rewards += reward
 

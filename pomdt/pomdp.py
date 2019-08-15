@@ -99,7 +99,7 @@ class POMDP:
         if s1==s2==4:
             return -5
         else:
-            return 0.01*a + (np.power(8,3) -  np.power(s1+s2,3))/1000.
+            return 0.05*a + (np.power(8,3) -  np.power(s1+s2,3))/1000.
 
     def defaultInitialBelief(self):
         initialProb = np.zeros((len(self.states),1))
